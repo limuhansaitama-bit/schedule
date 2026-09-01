@@ -1,0 +1,1216 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<title>現場工程ノート</title>
+<link rel="manifest" href="./manifest.json" />
+<link rel="apple-touch-icon" href="./icon-192.png" />
+<meta name="theme-color" content="#46698A" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="default" />
+<meta name="apple-mobile-web-app-title" content="工程ノート" />
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<style>
+  html, body { margin: 0; padding: 0; background: #EFF1E8; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel" data-presets="react">
+const { useState, useEffect } = React;
+
+function Plus({ size }) { return <span style={{ fontSize: size || 14, lineHeight: 1 }}>＋</span>; }
+function Trash2({ size }) { return <span style={{ fontSize: size || 14 }}>🗑</span>; }
+function Check({ size, color }) { return <span style={{ fontSize: size || 14, color: color || 'inherit', fontWeight: 700 }}>✓</span>; }
+function X({ size }) { return <span style={{ fontSize: size || 14 }}>✕</span>; }
+function ChevronDown({ size }) { return <span style={{ fontSize: size || 16 }}>▾</span>; }
+function ChevronUp({ size }) { return <span style={{ fontSize: size || 16 }}>▴</span>; }
+function ChevronLeft({ size }) { return <span style={{ fontSize: size || 16 }}>‹</span>; }
+function ChevronRight({ size }) { return <span style={{ fontSize: size || 16 }}>›</span>; }
+function CalendarIcon({ size }) { return <span style={{ fontSize: size || 14 }}>📅</span>; }
+
+window.storage = {
+  get: async (key) => {
+    const v = localStorage.getItem(key);
+    return v === null ? null : { key, value: v, shared: false };
+  },
+  set: async (key, value) => {
+    localStorage.setItem(key, value);
+    return { key, value, shared: false };
+  },
+};
+
+
+const uid = () => Math.random().toString(36).slice(2, 10);
+
+const BASIS_LABEL = { start: '着工', end: '完了' };
+const TARGET_PRESETS = ['居住者', '管理組合', '管理会社', '施工業者', '近隣住民', '労働基準監督署', '行政・検査機関', '資材業者'];
+const DAY_LABELS = ['日', '月', '火', '水', '木', '金', '土'];
+
+const seedTemplates = () => {
+  const kensaId = uid();
+  const seisoId = uid();
+  const daikibo = {
+    id: 'tpl-' + uid(),
+    name: '大規模修繕工事',
+    tasks: [
+      { id: uid(), label: '近隣説明会の実施', target: '近隣住民', scheduleType: 'basis', basis: 'start', offsetDays: 30, dependsOn: null, gapDays: 0 },
+      { id: uid(), label: '工事のお知らせ掲示・全戸配布', target: '居住者', scheduleType: 'basis', basis: 'start', offsetDays: 14, dependsOn: null, gapDays: 0 },
+      { id: uid(), label: '足場設置の最終確認', target: '施工業者', scheduleType: 'basis', basis: 'start', offsetDays: 10, dependsOn: null, gapDays: 0 },
+      { id: uid(), label: '資材搬入経路・駐車場の確保連絡', target: '管理会社', scheduleType: 'basis', basis: 'start', offsetDays: 7, dependsOn: null, gapDays: 0 },
+      { id: uid(), label: '着工前の現地立会い', target: '施工業者', scheduleType: 'basis', basis: 'start', offsetDays: 1, dependsOn: null, gapDays: 0 },
+      { id: kensaId, label: '足場解体前の完了検査', target: '施工業者', scheduleType: 'basis', basis: 'end', offsetDays: 5, dependsOn: null, gapDays: 0 },
+      { id: seisoId, label: '足場解体後の清掃・現場確認', target: '施工業者', scheduleType: 'after', basis: 'end', offsetDays: 0, dependsOn: kensaId, gapDays: 1 },
+      { id: uid(), label: '竣工書類・保証書の受領', target: '施工業者', scheduleType: 'after', basis: 'end', offsetDays: 0, dependsOn: seisoId, gapDays: 3 },
+    ],
+  };
+
+  const kanryoTachiaiId = uid();
+  const bousui = {
+    id: 'tpl-' + uid(),
+    name: '外壁・屋上防水工事',
+    tasks: [
+      { id: uid(), label: '近隣挨拶', target: '近隣住民', scheduleType: 'basis', basis: 'start', offsetDays: 14, dependsOn: null, gapDays: 0 },
+      { id: uid(), label: 'ゴンドラ・足場設置届の提出', target: '労働基準監督署', scheduleType: 'basis', basis: 'start', offsetDays: 30, dependsOn: null, gapDays: 0 },
+      { id: uid(), label: '工事のお知らせ掲示', target: '居住者', scheduleType: 'basis', basis: 'start', offsetDays: 10, dependsOn: null, gapDays: 0 },
+      { id: uid(), label: '資材搬入日の連絡', target: '管理会社', scheduleType: 'basis', basis: 'start', offsetDays: 5, dependsOn: null, gapDays: 0 },
+      { id: kanryoTachiaiId, label: '完了検査の立会い', target: '施工業者', scheduleType: 'basis', basis: 'end', offsetDays: 2, dependsOn: null, gapDays: 0 },
+      { id: uid(), label: '引き渡し書類の準備', target: '施工業者', scheduleType: 'after', basis: 'end', offsetDays: 0, dependsOn: kanryoTachiaiId, gapDays: 1 },
+    ],
+  };
+
+  const kyusuiId = uid();
+  const suido = {
+    id: 'tpl-' + uid(),
+    name: '給排水管更新工事',
+    tasks: [
+      { id: uid(), label: '断水予告の掲示', target: '居住者', scheduleType: 'basis', basis: 'start', offsetDays: 10, dependsOn: null, gapDays: 0 },
+      { id: uid(), label: '各戸への在宅依頼連絡', target: '居住者', scheduleType: 'basis', basis: 'start', offsetDays: 7, dependsOn: null, gapDays: 0 },
+      { id: kyusuiId, label: '断水当日の立会い確認', target: '施工業者', scheduleType: 'basis', basis: 'start', offsetDays: 1, dependsOn: null, gapDays: 0 },
+      { id: uid(), label: '通水確認・完了報告', target: '施工業者', scheduleType: 'after', basis: 'end', offsetDays: 0, dependsOn: kyusuiId, gapDays: 1 },
+    ],
+  };
+
+  const elevator = {
+    id: 'tpl-' + uid(),
+    name: 'エレベーター改修工事',
+    tasks: [
+      { id: uid(), label: '休止期間の告知掲示', target: '居住者', scheduleType: 'basis', basis: 'start', offsetDays: 21, dependsOn: null, gapDays: 0 },
+      { id: uid(), label: '休止中の代替案内(階段利用等)', target: '居住者', scheduleType: 'basis', basis: 'start', offsetDays: 14, dependsOn: null, gapDays: 0 },
+      { id: uid(), label: '法定検査の申請確認', target: '行政・検査機関', scheduleType: 'basis', basis: 'end', offsetDays: 7, dependsOn: null, gapDays: 0 },
+      { id: uid(), label: '運転再開の案内', target: '居住者', scheduleType: 'basis', basis: 'end', offsetDays: 0, dependsOn: null, gapDays: 0 },
+    ],
+  };
+
+  return [daikibo, bousui, suido, elevator];
+};
+
+function describeOffset(basis, offsetDays) {
+  const b = BASIS_LABEL[basis] || basis;
+  if (offsetDays > 0) return `${b}の${offsetDays}日前`;
+  if (offsetDays === 0) return `${b}当日`;
+  return `${b}の${Math.abs(offsetDays)}日後`;
+}
+
+function describeSchedule(task, tasksById) {
+  if (task.scheduleType === 'after') {
+    const dep = tasksById[task.dependsOn];
+    const depLabel = dep ? (dep.label || '(名称未設定のタスク)') : '(削除されたタスク)';
+    const g = Number(task.gapDays || 0);
+    return g === 0 ? `「${depLabel}」の直後` : `「${depLabel}」の${g}日後`;
+  }
+  return describeOffset(task.basis, task.offsetDays);
+}
+
+function computeProjectDueDates(project) {
+  const map = {};
+  const tasksById = {};
+  (project.tasks || []).forEach((t) => { tasksById[t.id] = t; });
+  const visiting = new Set();
+
+  function resolve(task) {
+    if (Object.prototype.hasOwnProperty.call(map, task.id)) return map[task.id];
+    if (visiting.has(task.id)) { map[task.id] = null; return null; }
+    visiting.add(task.id);
+    let date = null;
+    if (task.scheduleType === 'after' && task.dependsOn && tasksById[task.dependsOn]) {
+      const depDate = resolve(tasksById[task.dependsOn]);
+      if (depDate) {
+        date = new Date(depDate);
+        date.setDate(date.getDate() + Number(task.gapDays || 0));
+      }
+    } else {
+      const baseStr = task.basis === 'start' ? project.startDate : project.endDate;
+      if (baseStr) {
+        date = new Date(baseStr + 'T00:00:00');
+        date.setDate(date.getDate() - Number(task.offsetDays || 0));
+      }
+    }
+    visiting.delete(task.id);
+    map[task.id] = date;
+    return date;
+  }
+
+  (project.tasks || []).forEach(resolve);
+  return { map, tasksById };
+}
+
+function collectItems(projects) {
+  const items = [];
+  projects.forEach((p) => {
+    const { map, tasksById } = computeProjectDueDates(p);
+    (p.tasks || []).forEach((t) => {
+      const date = map[t.id];
+      items.push({ project: p, task: t, date, status: getStatus(date, t.done), tasksById });
+    });
+  });
+  return items;
+}
+
+function formatDate(d) {
+  if (!d) return '';
+  return d.toLocaleDateString('ja-JP', { year: 'numeric', month: 'numeric', day: 'numeric', weekday: 'short' });
+}
+
+function startOfDay(d) {
+  const x = new Date(d);
+  x.setHours(0, 0, 0, 0);
+  return x;
+}
+
+function addDays(d, n) {
+  const x = new Date(d);
+  x.setDate(x.getDate() + n);
+  return x;
+}
+
+function isSameDay(a, b) {
+  return !!a && !!b && a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+}
+
+function dateKey(d) {
+  return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+}
+
+function todayStart() {
+  return startOfDay(new Date());
+}
+
+function getStatus(date, done) {
+  if (done) return 'done';
+  if (!date) return 'nodate';
+  const today = todayStart();
+  if (date < today) return 'overdue';
+  const diff = Math.round((date - today) / 86400000);
+  if (diff <= 3) return 'soon';
+  return 'normal';
+}
+
+function metaText(task, date) {
+  if (date) return formatDate(date);
+  if (task.scheduleType === 'after') return '前のタスクの日付が未設定です';
+  return '基準日が未設定です';
+}
+
+function dayUrgency(dateItems) {
+  if (!dateItems || dateItems.length === 0) return null;
+  const notDone = dateItems.filter((i) => !i.task.done);
+  if (notDone.length === 0) return 'done';
+  if (notDone.some((i) => i.status === 'overdue')) return 'overdue';
+  if (notDone.some((i) => i.status === 'soon')) return 'soon';
+  return 'normal';
+}
+
+function buildMonthDays(year, month) {
+  const startWeekday = new Date(year, month, 1).getDay();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const cells = [];
+  for (let i = 0; i < startWeekday; i++) cells.push(null);
+  for (let d = 1; d <= daysInMonth; d++) cells.push(new Date(year, month, d));
+  return cells;
+}
+
+function escapeICS(text) {
+  return String(text || '').replace(/\\/g, '\\\\').replace(/\n/g, '\\n').replace(/,/g, '\\,').replace(/;/g, '\\;');
+}
+
+function pad2(n) { return String(n).padStart(2, '0'); }
+
+function formatICSDateTime(date, hour, minute) {
+  const d = new Date(date);
+  d.setHours(hour, minute, 0, 0);
+  return `${d.getFullYear()}${pad2(d.getMonth() + 1)}${pad2(d.getDate())}T${pad2(d.getHours())}${pad2(d.getMinutes())}00`;
+}
+
+function buildICS(events) {
+  const now = new Date();
+  const stamp = `${now.getUTCFullYear()}${pad2(now.getUTCMonth() + 1)}${pad2(now.getUTCDate())}T${pad2(now.getUTCHours())}${pad2(now.getUTCMinutes())}00Z`;
+  const lines = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//genba-kotei-note//JP', 'CALSCALE:GREGORIAN'];
+  events.forEach((ev) => {
+    lines.push('BEGIN:VEVENT');
+    lines.push(`UID:${ev.uid}@genba-kotei-note`);
+    lines.push(`DTSTAMP:${stamp}`);
+    lines.push(`DTSTART:${formatICSDateTime(ev.date, 9, 0)}`);
+    lines.push(`DTEND:${formatICSDateTime(ev.date, 9, 30)}`);
+    lines.push(`SUMMARY:${escapeICS(ev.title)}`);
+    if (ev.description) lines.push(`DESCRIPTION:${escapeICS(ev.description)}`);
+    lines.push('BEGIN:VALARM');
+    lines.push('TRIGGER:-PT0M');
+    lines.push('ACTION:DISPLAY');
+    lines.push(`DESCRIPTION:${escapeICS(ev.title)}`);
+    lines.push('END:VALARM');
+    lines.push('END:VEVENT');
+  });
+  lines.push('END:VCALENDAR');
+  return lines.join('\r\n');
+}
+
+function downloadICS(filename, content) {
+  const blob = new Blob([content], { type: 'text/calendar;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function itemToICSEvent({ project, task }, date) {
+  const title = (task.target ? `[${task.target}] ` : '') + task.label + (project ? `（${project.name}）` : '');
+  const descParts = [];
+  if (project) descParts.push(`工事: ${project.name}`);
+  if (task.target) descParts.push(`宛先: ${task.target}`);
+  return { uid: `${(project ? project.id : 'p')}-${task.id}`, title, description: descParts.join('\n'), date };
+}
+
+function exportItemsICS(items, filename) {
+  const events = items.filter((i) => i.date).map((i) => itemToICSEvent(i, i.date));
+  if (events.length === 0) return false;
+  downloadICS(filename, buildICS(events));
+  return true;
+}
+
+const STATUS_META = {
+  overdue: { className: 'stripe-overdue', textClass: 'text-overdue', label: '期限超過' },
+  soon: { className: 'stripe-soon', textClass: 'text-soon', label: 'まもなく' },
+  normal: { className: 'stripe-normal', textClass: 'text-ink', label: '' },
+  nodate: { className: 'stripe-nodate', textClass: 'text-muted', label: '' },
+  done: { className: 'stripe-done', textClass: 'text-done', label: '完了' },
+};
+
+const newTaskDefaults = () => ({ id: uid(), label: '', target: '', scheduleType: 'basis', basis: 'start', offsetDays: 7, dependsOn: null, gapDays: 0 });
+
+function toISODate(d) {
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+function buildDemoProject() {
+  const today = todayStart();
+  const kensaId = uid();
+  const seisoId = uid();
+  return {
+    id: 'proj-' + uid(),
+    name: '（例）〇〇マンション大規模修繕',
+    templateName: '大規模修繕工事',
+    startDate: toISODate(addDays(today, -10)),
+    endDate: toISODate(addDays(today, 30)),
+    tasks: [
+      { id: uid(), label: 'ゴンドラ・足場設置届の提出', target: '労働基準監督署', scheduleType: 'basis', basis: 'start', offsetDays: 3, dependsOn: null, gapDays: 0, done: false },
+      { id: uid(), label: '着工前の現地立会い', target: '施工業者', scheduleType: 'basis', basis: 'start', offsetDays: -3, dependsOn: null, gapDays: 0, done: true },
+      { id: kensaId, label: '足場解体前の完了検査', target: '施工業者', scheduleType: 'basis', basis: 'end', offsetDays: 28, dependsOn: null, gapDays: 0, done: false },
+      { id: seisoId, label: '足場解体後の清掃・現場確認', target: '施工業者', scheduleType: 'after', basis: 'end', offsetDays: 0, dependsOn: kensaId, gapDays: 1, done: false },
+      { id: uid(), label: '竣工書類・保証書の受領', target: '施工業者', scheduleType: 'after', basis: 'end', offsetDays: 0, dependsOn: seisoId, gapDays: 5, done: false },
+      { id: uid(), label: '資材搬入経路・駐車場の確保連絡', target: '管理会社', scheduleType: 'basis', basis: 'end', offsetDays: 5, dependsOn: null, gapDays: 0, done: false },
+    ],
+  };
+}
+
+function App() {
+  const [templates, setTemplates] = useState([]);
+  const [projects, setProjects] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [tab, setTab] = useState('dashboard');
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    (async () => {
+      let loadedTemplates = null;
+      let loadedProjects = [];
+      let demoSeeded = false;
+      try {
+        const t = await window.storage.get('templates', false);
+        if (t && t.value) loadedTemplates = JSON.parse(t.value);
+      } catch (e) {
+        loadedTemplates = null;
+      }
+      try {
+        const p = await window.storage.get('projects', false);
+        if (p && p.value) loadedProjects = JSON.parse(p.value);
+      } catch (e) {
+        loadedProjects = [];
+      }
+      try {
+        const seeded = await window.storage.get('demoSeeded', false);
+        demoSeeded = !!(seeded && seeded.value);
+      } catch (e) {
+        demoSeeded = false;
+      }
+      if (!loadedTemplates || loadedTemplates.length === 0) {
+        loadedTemplates = seedTemplates();
+        try {
+          await window.storage.set('templates', JSON.stringify(loadedTemplates), false);
+        } catch (e) {
+          setError('保存領域への書き込みに失敗しました');
+        }
+      }
+      if (!demoSeeded) {
+        if (loadedProjects.length === 0) {
+          loadedProjects = [buildDemoProject()];
+          try {
+            await window.storage.set('projects', JSON.stringify(loadedProjects), false);
+          } catch (e) {
+            setError('工事データの保存に失敗しました');
+          }
+        }
+        try {
+          await window.storage.set('demoSeeded', '1', false);
+        } catch (e) {
+          // ignore
+        }
+      }
+      setTemplates(loadedTemplates);
+      setProjects(loadedProjects);
+      setLoading(false);
+    })();
+  }, []);
+
+  const saveTemplates = async (list) => {
+    setTemplates(list);
+    try {
+      await window.storage.set('templates', JSON.stringify(list), false);
+    } catch (e) {
+      setError('テンプレートの保存に失敗しました');
+    }
+  };
+
+  const saveProjects = async (list) => {
+    setProjects(list);
+    try {
+      await window.storage.set('projects', JSON.stringify(list), false);
+    } catch (e) {
+      setError('工事データの保存に失敗しました');
+    }
+  };
+
+  const [pendingImport, setPendingImport] = useState(null);
+  const [importMsg, setImportMsg] = useState('');
+
+  const exportBackup = () => {
+    const data = { templates, projects, exportedAt: new Date().toISOString() };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `工程ノート_バックアップ_${toISODate(new Date())}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+
+  const handleFileSelect = (e) => {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const data = JSON.parse(ev.target.result);
+        if (!data || !Array.isArray(data.templates) || !Array.isArray(data.projects)) {
+          setImportMsg('ファイルの形式が正しくありません');
+          return;
+        }
+        setPendingImport(data);
+        setImportMsg('');
+      } catch (err) {
+        setImportMsg('ファイルを読み込めませんでした');
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+  };
+
+  const confirmImport = async () => {
+    if (!pendingImport) return;
+    await saveTemplates(pendingImport.templates);
+    await saveProjects(pendingImport.projects);
+    setPendingImport(null);
+    setImportMsg('読み込みました');
+  };
+
+  if (loading) {
+    return (
+      <div style={{ padding: 40, textAlign: 'center', color: '#6b6f66' }}>
+        読み込み中です…
+      </div>
+    );
+  }
+
+  return (
+    <div className="app-root">
+      <style>{`
+        .app-root { --paper: #EFF1E8; --paper-alt: #FFFFFF; --ink: #2A2925; --muted: #6D7266;
+          --border: #D6DACB; --overdue: #C4432A; --soon: #C99A2E; --done: #4F7A5E;
+          --primary: #46698A; --primary-ink: #FDFDFA; --tag-bg: #DCE4D2; --shadow: rgba(30, 30, 20, 0.08);
+          --overdue-tint: #F6E3DC; --soon-tint: #F8EFD9;
+          font-family: -apple-system, "Hiragino Sans", "Yu Gothic", "Meiryo", sans-serif;
+          background: var(--paper); color: var(--ink); min-height: 100%;
+          max-width: 640px; margin: 0 auto; padding: 20px 16px 60px;
+        }
+        .text-ink { color: var(--ink); } .text-muted { color: var(--muted); }
+        .text-overdue { color: var(--overdue); } .text-soon { color: var(--soon); } .text-done { color: var(--done); }
+        .app-title { font-size: 21px; font-weight: 700; letter-spacing: 0.02em; margin: 0; color: var(--ink); }
+        .app-sub { font-size: 12.5px; color: var(--muted); margin-top: 5px; letter-spacing: 0.01em; }
+        .tabs { display: flex; margin-top: 22px; border-bottom: 1px solid var(--border); gap: 2px; }
+        .tab-btn { flex: 1; padding: 10px 2px; font-size: 12px; background: none; border: none;
+          color: var(--muted); cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px;
+          border-radius: 4px 4px 0 0; transition: color 0.15s; }
+        .tab-btn.active { color: var(--primary); border-bottom: 2px solid var(--primary); font-weight: 700; }
+        .section-label { font-size: 11.5px; color: var(--muted); margin: 22px 0 9px; padding-bottom: 5px;
+          border-bottom: 1px solid var(--border); letter-spacing: 0.03em; }
+        .row { display: flex; align-items: flex-start; gap: 10px; background: var(--paper-alt);
+          border: 1px solid var(--border); border-left-width: 5px; border-radius: 6px; padding: 11px 12px;
+          margin-bottom: 8px; box-shadow: 0 1px 2px var(--shadow); }
+        .stripe-overdue { border-left-color: var(--overdue); background: var(--overdue-tint); }
+        .stripe-soon { border-left-color: var(--soon); background: var(--soon-tint); }
+        .stripe-normal { border-left-color: var(--primary); }
+        .stripe-nodate { border-left-color: var(--border); }
+        .stripe-done { border-left-color: var(--done); opacity: 0.55; }
+        .status-pill { display: inline-block; font-size: 10px; font-weight: 700; letter-spacing: 0.02em;
+          padding: 1px 7px; border-radius: 999px; margin-right: 6px; vertical-align: middle; }
+        .pill-overdue { background: var(--overdue); color: #FDFDFA; }
+        .pill-soon { background: var(--soon); color: #2A2925; }
+        .check-btn { flex-shrink: 0; width: 21px; height: 21px; border-radius: 999px; border: 1.5px solid var(--muted);
+          background: var(--paper-alt); cursor: pointer; display: flex; align-items: center; justify-content: center;
+          margin-top: 1px; transition: background 0.15s, border-color 0.15s; }
+        .check-btn.done { background: var(--done); border-color: var(--done); }
+        .task-label { font-size: 14px; line-height: 1.45; color: var(--ink); }
+        .task-meta { font-size: 11.5px; color: var(--muted); margin-top: 3px; }
+        .proj-name { font-size: 10.5px; color: var(--primary); font-weight: 600; letter-spacing: 0.02em; margin-bottom: 1px; }
+        .target-tag { display: inline-block; font-size: 10.5px; background: var(--tag-bg); color: var(--ink);
+          padding: 2px 8px; border-radius: 3px; margin-bottom: 4px; letter-spacing: 0.01em; }
+        .card { background: var(--paper-alt); border: 1px solid var(--border); border-radius: 8px; padding: 14px;
+          margin-bottom: 10px; box-shadow: 0 1px 3px var(--shadow); }
+        .card-head { display: flex; justify-content: space-between; align-items: center; cursor: pointer; }
+        .card-title { font-size: 15px; font-weight: 700; color: var(--ink); }
+        .card-sub { font-size: 11.5px; color: var(--muted); margin-top: 3px; }
+        .btn { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; padding: 9px 16px;
+          background: var(--primary); color: var(--primary-ink); border: none; border-radius: 6px; cursor: pointer;
+          font-weight: 600; box-shadow: 0 1px 2px var(--shadow); transition: filter 0.15s; }
+        .btn:hover { filter: brightness(0.95); }
+        .btn.secondary { background: var(--paper-alt); color: var(--ink); border: 1px solid var(--border); box-shadow: none; }
+        .btn.danger { background: var(--paper-alt); color: var(--overdue); border: 1px solid var(--overdue); box-shadow: none; }
+        .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+        .field { margin-bottom: 10px; }
+        .field label { display: block; font-size: 11.5px; color: var(--muted); margin-bottom: 4px; }
+        .field input, .field select { width: 100%; box-sizing: border-box; padding: 8px 10px; font-size: 14px;
+          border: 1px solid var(--border); border-radius: 5px; background: var(--paper); color: var(--ink); }
+        .task-edit-block { border: 1px solid var(--border); border-radius: 6px; background: var(--paper); padding: 9px; margin-bottom: 8px; }
+        .task-edit-row { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; flex-wrap: wrap; }
+        .task-edit-row:last-child { margin-bottom: 0; }
+        .task-edit-row input[type=text] { padding: 6px 8px; font-size: 13px; border: 1px solid var(--border); border-radius: 4px; background: var(--paper-alt); color: var(--ink); }
+        .task-edit-row input.label-input { flex: 1 1 140px; }
+        .task-edit-row input.target-input { flex: 1 1 100px; }
+        .task-edit-row select { padding: 6px; font-size: 13px; border: 1px solid var(--border); border-radius: 4px; background: var(--paper-alt); color: var(--ink); }
+        .task-edit-row select.dep-select { flex: 1 1 140px; }
+        .task-edit-row input[type=number] { width: 56px; padding: 6px; font-size: 13px; border: 1px solid var(--border); border-radius: 4px; background: var(--paper-alt); color: var(--ink); }
+        .icon-btn { background: none; border: none; cursor: pointer; color: var(--muted); padding: 4px; border-radius: 4px; transition: color 0.15s, background 0.15s; }
+        .icon-btn:hover { color: var(--primary); background: var(--tag-bg); }
+        .empty { text-align: center; padding: 40px 20px; color: var(--muted); font-size: 13px; }
+        .error-bar { background: #F3E3DE; border: 1px solid var(--overdue); color: var(--overdue); border-radius: 6px; padding: 8px 12px; font-size: 12px; margin-bottom: 14px; }
+        .backup-bar { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
+        .hint-text { font-size: 11.5px; color: var(--muted); margin-top: 6px; }
+        .confirm-bar { background: var(--soon-tint); border: 1px solid var(--soon); border-radius: 6px; padding: 10px 12px; margin-top: 8px; font-size: 12px; color: var(--ink); }
+        .cal-toolbar { display: flex; gap: 6px; margin-top: 16px; }
+        .cal-mode-btn { flex: 1; padding: 8px 4px; font-size: 12px; border: 1px solid var(--border); border-radius: 6px;
+          background: var(--paper-alt); color: var(--ink); cursor: pointer; font-weight: 600; }
+        .cal-mode-btn.active { background: var(--primary); color: var(--primary-ink); border-color: var(--primary); }
+        .cal-nav { display: flex; align-items: center; justify-content: space-between; margin-top: 16px; }
+        .cal-nav-label { font-size: 14px; font-weight: 700; color: var(--ink); }
+        .cal-nav-btns { display: flex; align-items: center; gap: 2px; }
+        .cal-weekdays { display: grid; grid-template-columns: repeat(7, 1fr); text-align: center; font-size: 11px; color: var(--muted); margin-top: 10px; }
+        .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; margin-top: 4px; }
+        .cal-cell { position: relative; aspect-ratio: 1; display: flex; flex-direction: column; align-items: center;
+          justify-content: center; background: var(--paper-alt); border: 1px solid var(--border); border-radius: 5px; cursor: pointer;
+          font-size: 12px; color: var(--ink); padding: 2px; transition: background 0.15s, border-color 0.15s; }
+        .cal-cell.empty-cell { visibility: hidden; border: none; background: none; cursor: default; }
+        .cal-cell.today { border-color: var(--primary); border-width: 2px; }
+        .cal-cell.selected { background: var(--tag-bg); border-color: var(--primary); }
+        .cal-dot { width: 9px; height: 9px; border-radius: 999px; margin-top: 3px; }
+        .dot-overdue { background: var(--overdue); }
+        .dot-soon { background: var(--soon); }
+        .dot-normal { background: var(--primary); }
+        .dot-done { background: var(--done); }
+        .year-container { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 16px; margin-top: 14px; }
+        .year-month-title { font-size: 12px; font-weight: 700; margin-bottom: 4px; cursor: pointer; color: var(--ink); }
+        .year-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; }
+        .year-grid .cal-cell { font-size: 8px; padding: 0; border-radius: 3px; }
+        .year-grid .cal-dot { width: 6px; height: 6px; margin-top: 1px; }
+        .day-list-panel { margin-top: 22px; }
+        .day-list-title { font-size: 14px; font-weight: 700; margin-bottom: 8px; color: var(--ink); }
+        .legend { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 10px; font-size: 11px; color: var(--muted); align-items: center; }
+        .legend-item { display: flex; align-items: center; gap: 4px; }
+      `}</style>
+
+      <h1 className="app-title">現場工程ノート</h1>
+      <p className="app-sub">工事ごとに、いつまでに誰に何をやるかを順序も含めて並べます</p>
+
+      {error && <div className="error-bar">{error}</div>}
+
+      <div className="backup-bar">
+        <button className="btn secondary" onClick={exportBackup}>バックアップを保存(JSON)</button>
+        <button className="btn secondary" onClick={() => document.getElementById('backup-file-input').click()}>バックアップを読み込む</button>
+        <input id="backup-file-input" type="file" accept="application/json" style={{ display: 'none' }} onChange={handleFileSelect} />
+      </div>
+      {importMsg && <div className="hint-text">{importMsg}</div>}
+      {pendingImport && (
+        <div className="confirm-bar">
+          <span>テンプレート{pendingImport.templates.length}件・工事{pendingImport.projects.length}件を読み込みます(今のデータは上書きされます)</span>
+          <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
+            <button className="btn" onClick={confirmImport}>読み込む</button>
+            <button className="btn secondary" onClick={() => setPendingImport(null)}>キャンセル</button>
+          </div>
+        </div>
+      )}
+
+      <div className="tabs">
+        <button className={`tab-btn ${tab === 'dashboard' ? 'active' : ''}`} onClick={() => setTab('dashboard')}>予定一覧</button>
+        <button className={`tab-btn ${tab === 'calendar' ? 'active' : ''}`} onClick={() => setTab('calendar')}>カレンダー</button>
+        <button className={`tab-btn ${tab === 'projects' ? 'active' : ''}`} onClick={() => setTab('projects')}>工事一覧</button>
+        <button className={`tab-btn ${tab === 'templates' ? 'active' : ''}`} onClick={() => setTab('templates')}>テンプレ</button>
+      </div>
+
+      {tab === 'dashboard' && (
+        <Dashboard projects={projects} saveProjects={saveProjects} />
+      )}
+      {tab === 'calendar' && (
+        <CalendarView projects={projects} saveProjects={saveProjects} />
+      )}
+      {tab === 'projects' && (
+        <Projects projects={projects} templates={templates} saveProjects={saveProjects} />
+      )}
+      {tab === 'templates' && (
+        <Templates templates={templates} saveTemplates={saveTemplates} />
+      )}
+
+      <datalist id="target-presets">
+        {TARGET_PRESETS.map((t) => <option key={t} value={t} />)}
+      </datalist>
+    </div>
+  );
+}
+
+function ScheduleEditor({ value, options, onChange }) {
+  return (
+    <div className="task-edit-row">
+      <select value={value.scheduleType || 'basis'} onChange={(e) => onChange('scheduleType', e.target.value)}>
+        <option value="basis">着工/完了日から</option>
+        <option value="after">他のタスクの後</option>
+      </select>
+      {value.scheduleType === 'after' ? (
+        <>
+          <select className="dep-select" value={value.dependsOn || ''} onChange={(e) => onChange('dependsOn', e.target.value)}>
+            <option value="">タスクを選ぶ</option>
+            {options.map((o) => <option key={o.id} value={o.id}>{o.label || '(名称未設定)'}</option>)}
+          </select>
+          <input type="number" min="0" value={value.gapDays ?? 0} onChange={(e) => onChange('gapDays', e.target.value)} />
+          <span style={{ fontSize: 12, color: '#767C6E' }}>日後</span>
+        </>
+      ) : (
+        <>
+          <select value={value.basis || 'start'} onChange={(e) => onChange('basis', e.target.value)}>
+            <option value="start">着工基準</option>
+            <option value="end">完了基準</option>
+          </select>
+          <input type="number" value={value.offsetDays ?? 0} onChange={(e) => onChange('offsetDays', e.target.value)} />
+          <span style={{ fontSize: 12, color: '#767C6E' }}>日前</span>
+        </>
+      )}
+    </div>
+  );
+}
+
+function TaskRow({ project, task, date, status, tasksById, onToggle, onRemove, onExport }) {
+  return (
+    <div className={`row ${STATUS_META[status].className}`}>
+      <button className={`check-btn ${task.done ? 'done' : ''}`} onClick={onToggle}>
+        {task.done && <Check size={13} color="#FAFAF5" />}
+      </button>
+      <div style={{ flex: 1 }}>
+        {project && <div className="proj-name">{project.name}</div>}
+        {task.target && <span className="target-tag">{task.target}</span>}
+        <div className="task-label">{task.label}</div>
+        <div className={`task-meta ${STATUS_META[status].textClass}`}>
+          {(status === 'overdue' || status === 'soon') && <span className={`status-pill pill-${status}`}>{STATUS_META[status].label}</span>}
+          {metaText(task, date)} ・ {describeSchedule(task, tasksById)}
+        </div>
+      </div>
+      {onExport && date && <button className="icon-btn" title="カレンダーに追加" onClick={onExport}><CalendarIcon size={15} /></button>}
+      {onRemove && <button className="icon-btn" onClick={onRemove}><X size={15} /></button>}
+    </div>
+  );
+}
+
+function Dashboard({ projects, saveProjects }) {
+  const [showDone, setShowDone] = useState(false);
+
+  const toggleDone = (projectId, taskId) => {
+    const next = projects.map((p) => {
+      if (p.id !== projectId) return p;
+      return { ...p, tasks: p.tasks.map((t) => (t.id === taskId ? { ...t, done: !t.done } : t)) };
+    });
+    saveProjects(next);
+  };
+
+  const items = collectItems(projects);
+
+  items.sort((a, b) => {
+    if (!a.date && !b.date) return 0;
+    if (!a.date) return 1;
+    if (!b.date) return -1;
+    return a.date - b.date;
+  });
+
+  const visible = items.filter((i) => showDone || i.status !== 'done');
+  const groups = { overdue: [], soon: [], normal: [], nodate: [] };
+  visible.forEach((i) => {
+    const key = i.status === 'done' ? 'normal' : i.status;
+    groups[key].push(i);
+  });
+
+  const groupDefs = [
+    { key: 'overdue', label: '期限超過' },
+    { key: 'soon', label: '3日以内' },
+    { key: 'normal', label: 'それ以降' },
+    { key: 'nodate', label: '日程未設定' },
+  ];
+
+  if (projects.length === 0) {
+    return <div className="empty">まだ工事が登録されていません。「工事一覧」から工事を登録すると、ここに予定が並びます。</div>;
+  }
+
+  return (
+    <div>
+      {groupDefs.map((g) => {
+        const list = groups[g.key];
+        if (list.length === 0) return null;
+        return (
+          <div key={g.key}>
+            <div className="section-label">{g.label}（{list.length}）</div>
+            {list.map(({ project, task, date, status, tasksById }) => (
+              <TaskRow key={project.id + task.id} project={project} task={task} date={date} status={status}
+                tasksById={tasksById} onToggle={() => toggleDone(project.id, task.id)}
+                onExport={() => exportItemsICS([{ project, task, date }], `${task.label}.ics`)} />
+            ))}
+          </div>
+        );
+      })}
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 14 }}>
+        <button className="btn secondary" onClick={() => setShowDone(!showDone)}>
+          {showDone ? '完了したタスクを隠す' : '完了したタスクも表示'}
+        </button>
+        <button className="btn secondary" onClick={() => exportItemsICS(visible.filter((i) => i.status !== 'done'), '工事スケジュール.ics')}>
+          <CalendarIcon size={13} /> 未完了分をカレンダーに追加
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function CalendarView({ projects, saveProjects }) {
+  const [mode, setMode] = useState('month');
+  const [refDate, setRefDate] = useState(todayStart());
+  const [selectedDate, setSelectedDate] = useState(todayStart());
+
+  const toggleDone = (projectId, taskId) => {
+    const next = projects.map((p) => {
+      if (p.id !== projectId) return p;
+      return { ...p, tasks: p.tasks.map((t) => (t.id === taskId ? { ...t, done: !t.done } : t)) };
+    });
+    saveProjects(next);
+  };
+
+  const items = collectItems(projects);
+  const byDate = {};
+  items.forEach((it) => {
+    if (it.date) {
+      const k = dateKey(it.date);
+      (byDate[k] = byDate[k] || []).push(it);
+    }
+  });
+
+  const goToday = () => { const t = todayStart(); setRefDate(t); setSelectedDate(t); };
+
+  const shift = (dir) => {
+    if (mode === '2w') setRefDate(addDays(refDate, 14 * dir));
+    else if (mode === 'month') setRefDate(new Date(refDate.getFullYear(), refDate.getMonth() + dir, 1));
+    else setRefDate(new Date(refDate.getFullYear() + dir, refDate.getMonth(), 1));
+  };
+
+  const today = todayStart();
+
+  const renderCell = (date, keyPrefix) => {
+    if (!date) return <div key={keyPrefix + '-blank'} className="cal-cell empty-cell" />;
+    const k = dateKey(date);
+    const urgency = dayUrgency(byDate[k]);
+    const isSelected = isSameDay(date, selectedDate);
+    const isToday = isSameDay(date, today);
+    return (
+      <button
+        key={keyPrefix + '-' + k}
+        className={`cal-cell ${isSelected ? 'selected' : ''} ${isToday ? 'today' : ''}`}
+        onClick={() => setSelectedDate(date)}
+      >
+        <span>{date.getDate()}</span>
+        {urgency && <span className={`cal-dot dot-${urgency}`} />}
+      </button>
+    );
+  };
+
+  let navLabel = '';
+  let gridContent = null;
+
+  if (mode === '2w') {
+    const weekStart = addDays(refDate, -refDate.getDay());
+    const days = Array.from({ length: 14 }, (_, i) => addDays(weekStart, i));
+    navLabel = `${formatDate(days[0]).slice(0, -4)} 〜 ${formatDate(days[13]).slice(0, -4)}`;
+    gridContent = (
+      <>
+        <div className="cal-weekdays">{DAY_LABELS.map((d, i) => <div key={i}>{d}</div>)}</div>
+        <div className="cal-grid">{days.map((d) => renderCell(d, '2w'))}</div>
+      </>
+    );
+  } else if (mode === 'month') {
+    const year = refDate.getFullYear();
+    const month = refDate.getMonth();
+    navLabel = `${year}年${month + 1}月`;
+    const cells = buildMonthDays(year, month);
+    gridContent = (
+      <>
+        <div className="cal-weekdays">{DAY_LABELS.map((d, i) => <div key={i}>{d}</div>)}</div>
+        <div className="cal-grid">{cells.map((d, i) => renderCell(d, 'm' + i))}</div>
+      </>
+    );
+  } else {
+    const year = refDate.getFullYear();
+    navLabel = `${year}年`;
+    gridContent = (
+      <div className="year-container">
+        {Array.from({ length: 12 }, (_, m) => {
+          const cells = buildMonthDays(year, m);
+          return (
+            <div key={m}>
+              <div className="year-month-title" onClick={() => { setMode('month'); setRefDate(new Date(year, m, 1)); }}>
+                {m + 1}月
+              </div>
+              <div className="year-grid">{cells.map((d, i) => renderCell(d, 'y' + m + '-' + i))}</div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
+
+  const dayItems = (byDate[dateKey(selectedDate)] || []).slice().sort((a, b) => {
+    const order = { overdue: 0, soon: 1, normal: 2, done: 3 };
+    return (order[a.status] ?? 4) - (order[b.status] ?? 4);
+  });
+
+  const dayGroups = { overdue: [], soon: [], normal: [], done: [] };
+  dayItems.forEach((i) => dayGroups[i.status] && dayGroups[i.status].push(i));
+  const dayGroupDefs = [
+    { key: 'overdue', label: '期限超過' },
+    { key: 'soon', label: 'まもなく' },
+    { key: 'normal', label: '通常' },
+    { key: 'done', label: '完了' },
+  ];
+
+  return (
+    <div>
+      <div className="cal-toolbar">
+        <button className={`cal-mode-btn ${mode === '2w' ? 'active' : ''}`} onClick={() => setMode('2w')}>2週間</button>
+        <button className={`cal-mode-btn ${mode === 'month' ? 'active' : ''}`} onClick={() => setMode('month')}>1ヶ月</button>
+        <button className={`cal-mode-btn ${mode === 'year' ? 'active' : ''}`} onClick={() => setMode('year')}>1年</button>
+      </div>
+
+      <div className="cal-nav">
+        <div className="cal-nav-btns">
+          <button className="icon-btn" onClick={() => shift(-1)}><ChevronLeft size={18} /></button>
+          <button className="btn secondary" style={{ padding: '4px 10px', fontSize: 12 }} onClick={goToday}>今日</button>
+        </div>
+        <div className="cal-nav-label">{navLabel}</div>
+        <button className="icon-btn" onClick={() => shift(1)}><ChevronRight size={18} /></button>
+      </div>
+
+      {gridContent}
+
+      <div className="legend">
+        <span className="legend-item"><span className="cal-dot dot-overdue" /> 期限超過</span>
+        <span className="legend-item"><span className="cal-dot dot-soon" /> まもなく</span>
+        <span className="legend-item"><span className="cal-dot dot-normal" /> 通常</span>
+        <span className="legend-item"><span className="cal-dot dot-done" /> 完了</span>
+      </div>
+
+      <div className="day-list-panel">
+        <div className="day-list-title">{formatDate(selectedDate)}のやること</div>
+        {dayItems.length === 0 && <div className="empty">この日の予定はありません</div>}
+        {dayGroupDefs.map((g) => {
+          const list = dayGroups[g.key];
+          if (!list || list.length === 0) return null;
+          return (
+            <div key={g.key}>
+              <div className="section-label">{g.label}（{list.length}）</div>
+              {list.map(({ project, task, date, status, tasksById }) => (
+                <TaskRow key={project.id + task.id} project={project} task={task} date={date} status={status}
+                  tasksById={tasksById} onToggle={() => toggleDone(project.id, task.id)}
+                  onExport={() => exportItemsICS([{ project, task, date }], `${task.label}.ics`)} />
+              ))}
+            </div>
+          );
+        })}
+        {dayItems.length > 0 && (
+          <button className="btn secondary" style={{ marginTop: 6 }}
+            onClick={() => exportItemsICS(dayItems, `${formatDate(selectedDate)}のやること.ics`)}>
+            <CalendarIcon size={13} /> この日の予定をまとめてカレンダーに追加
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function Projects({ projects, templates, saveProjects }) {
+  const [adding, setAdding] = useState(false);
+  const [expanded, setExpanded] = useState(null);
+  const [form, setForm] = useState({ name: '', templateId: templates[0] ? templates[0].id : '', startDate: '', endDate: '' });
+
+  const startAdd = () => {
+    setForm({ name: '', templateId: templates[0] ? templates[0].id : '', startDate: '', endDate: '' });
+    setAdding(true);
+  };
+
+  const submitAdd = () => {
+    if (!form.name.trim()) return;
+    const tpl = templates.find((t) => t.id === form.templateId);
+    const srcTasks = tpl ? tpl.tasks : [];
+    const idMap = {};
+    const tasks = srcTasks.map((t) => {
+      const newId = uid();
+      idMap[t.id] = newId;
+      return { ...t, id: newId, done: false };
+    });
+    tasks.forEach((t) => {
+      if (t.dependsOn) t.dependsOn = idMap[t.dependsOn] || null;
+    });
+    const newProject = {
+      id: 'proj-' + uid(),
+      name: form.name.trim(),
+      templateName: tpl ? tpl.name : '未分類',
+      startDate: form.startDate,
+      endDate: form.endDate,
+      tasks,
+    };
+    saveProjects([...projects, newProject]);
+    setAdding(false);
+  };
+
+  const removeProject = (id) => {
+    saveProjects(projects.filter((p) => p.id !== id));
+    if (expanded === id) setExpanded(null);
+  };
+
+  const updateProjectDates = (id, field, value) => {
+    saveProjects(projects.map((p) => (p.id === id ? { ...p, [field]: value } : p)));
+  };
+
+  const toggleTask = (projectId, taskId) => {
+    saveProjects(projects.map((p) => {
+      if (p.id !== projectId) return p;
+      return { ...p, tasks: p.tasks.map((t) => (t.id === taskId ? { ...t, done: !t.done } : t)) };
+    }));
+  };
+
+  const removeTask = (projectId, taskId) => {
+    saveProjects(projects.map((p) => {
+      if (p.id !== projectId) return p;
+      return { ...p, tasks: p.tasks.filter((t) => t.id !== taskId) };
+    }));
+  };
+
+  const addCustomTask = (projectId, task) => {
+    saveProjects(projects.map((p) => {
+      if (p.id !== projectId) return p;
+      return { ...p, tasks: [...p.tasks, { ...task, id: uid(), done: false }] };
+    }));
+  };
+
+  return (
+    <div>
+      {projects.length === 0 && !adding && (
+        <div className="empty">工事を登録すると、工事種別のテンプレートに沿ってタスクが自動で作られます。</div>
+      )}
+
+      {projects.map((p) => {
+        const doneCount = p.tasks.filter((t) => t.done).length;
+        const isOpen = expanded === p.id;
+        const { map: dueDates, tasksById } = computeProjectDueDates(p);
+        return (
+          <div className="card" key={p.id}>
+            <div className="card-head" onClick={() => setExpanded(isOpen ? null : p.id)}>
+              <div>
+                <div className="card-title">{p.name}</div>
+                <div className="card-sub">{p.templateName} ・ {doneCount}/{p.tasks.length} 完了</div>
+              </div>
+              {isOpen ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
+            </div>
+            {isOpen && (
+              <div style={{ marginTop: 12 }}>
+                <div style={{ display: 'flex', gap: 10 }}>
+                  <div className="field" style={{ flex: 1 }}>
+                    <label>着工日</label>
+                    <input type="date" value={p.startDate || ''} onChange={(e) => updateProjectDates(p.id, 'startDate', e.target.value)} />
+                  </div>
+                  <div className="field" style={{ flex: 1 }}>
+                    <label>完了予定日</label>
+                    <input type="date" value={p.endDate || ''} onChange={(e) => updateProjectDates(p.id, 'endDate', e.target.value)} />
+                  </div>
+                </div>
+                {p.tasks
+                  .slice()
+                  .sort((a, b) => {
+                    const da = dueDates[a.id];
+                    const db = dueDates[b.id];
+                    if (!da && !db) return 0;
+                    if (!da) return 1;
+                    if (!db) return -1;
+                    return da - db;
+                  })
+                  .map((t) => {
+                    const date = dueDates[t.id];
+                    const status = getStatus(date, t.done);
+                    return (
+                      <TaskRow key={t.id} task={t} date={date} status={status} tasksById={tasksById}
+                        onToggle={() => toggleTask(p.id, t.id)} onRemove={() => removeTask(p.id, t.id)}
+                        onExport={() => exportItemsICS([{ project: p, task: t, date }], `${t.label}.ics`)} />
+                    );
+                  })}
+                <AddCustomTask onAdd={(task) => addCustomTask(p.id, task)} existingTasks={p.tasks} />
+                <button className="btn danger" style={{ marginTop: 10 }} onClick={() => removeProject(p.id)}>
+                  <Trash2 size={13} /> この工事を削除
+                </button>
+              </div>
+            )}
+          </div>
+        );
+      })}
+
+      {adding ? (
+        <div className="card">
+          <div className="field">
+            <label>工事名</label>
+            <input type="text" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="例：〇〇マンション 大規模修繕" />
+          </div>
+          <div className="field">
+            <label>工事種別（テンプレート）</label>
+            <select value={form.templateId} onChange={(e) => setForm({ ...form, templateId: e.target.value })}>
+              {templates.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+            </select>
+          </div>
+          <div style={{ display: 'flex', gap: 10 }}>
+            <div className="field" style={{ flex: 1 }}>
+              <label>着工日</label>
+              <input type="date" value={form.startDate} onChange={(e) => setForm({ ...form, startDate: e.target.value })} />
+            </div>
+            <div className="field" style={{ flex: 1 }}>
+              <label>完了予定日</label>
+              <input type="date" value={form.endDate} onChange={(e) => setForm({ ...form, endDate: e.target.value })} />
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button className="btn" onClick={submitAdd}>登録する</button>
+            <button className="btn secondary" onClick={() => setAdding(false)}>キャンセル</button>
+          </div>
+        </div>
+      ) : (
+        <button className="btn" onClick={startAdd}><Plus size={14} /> 工事を登録</button>
+      )}
+    </div>
+  );
+}
+
+function AddCustomTask({ onAdd, existingTasks }) {
+  const [open, setOpen] = useState(false);
+  const [task, setTask] = useState(newTaskDefaults());
+
+  const update = (field, value) => {
+    setTask((prev) => ({ ...prev, [field]: (field === 'offsetDays' || field === 'gapDays') ? Number(value) : value }));
+  };
+
+  const submit = () => {
+    if (!task.label.trim()) return;
+    onAdd({
+      label: task.label.trim(),
+      target: task.target.trim(),
+      scheduleType: task.scheduleType,
+      basis: task.basis,
+      offsetDays: Number(task.offsetDays || 0),
+      dependsOn: task.scheduleType === 'after' ? (task.dependsOn || null) : null,
+      gapDays: Number(task.gapDays || 0),
+    });
+    setTask(newTaskDefaults());
+    setOpen(false);
+  };
+
+  if (!open) {
+    return <button className="btn secondary" style={{ marginTop: 4 }} onClick={() => setOpen(true)}><Plus size={13} /> この工事だけのタスクを追加</button>;
+  }
+
+  return (
+    <div className="task-edit-block" style={{ marginTop: 8 }}>
+      <div className="task-edit-row">
+        <input className="target-input" type="text" placeholder="誰に（例：居住者）" list="target-presets" value={task.target} onChange={(e) => update('target', e.target.value)} />
+        <input className="label-input" type="text" placeholder="何をやる（例：お知らせ配布）" value={task.label} onChange={(e) => update('label', e.target.value)} />
+      </div>
+      <ScheduleEditor value={task} options={existingTasks.map((t) => ({ id: t.id, label: t.label }))} onChange={update} />
+      <div className="task-edit-row" style={{ marginTop: 4 }}>
+        <button className="btn secondary" onClick={submit}>追加する</button>
+        <button className="btn secondary" onClick={() => { setOpen(false); setTask(newTaskDefaults()); }}>キャンセル</button>
+      </div>
+    </div>
+  );
+}
+
+function Templates({ templates, saveTemplates }) {
+  const [expanded, setExpanded] = useState(null);
+  const [addingTpl, setAddingTpl] = useState(false);
+  const [newTplName, setNewTplName] = useState('');
+
+  const updateTemplate = (id, updater) => {
+    saveTemplates(templates.map((t) => (t.id === id ? updater(t) : t)));
+  };
+
+  const renameTemplate = (id, name) => updateTemplate(id, (t) => ({ ...t, name }));
+
+  const removeTemplate = (id) => {
+    saveTemplates(templates.filter((t) => t.id !== id));
+    if (expanded === id) setExpanded(null);
+  };
+
+  const addTaskRow = (id) => {
+    updateTemplate(id, (t) => ({ ...t, tasks: [...t.tasks, newTaskDefaults()] }));
+  };
+
+  const updateTaskRow = (tplId, taskId, field, value) => {
+    updateTemplate(tplId, (t) => ({
+      ...t,
+      tasks: t.tasks.map((task) => (task.id === taskId ? { ...task, [field]: (field === 'offsetDays' || field === 'gapDays') ? Number(value) : value } : task)),
+    }));
+  };
+
+  const removeTaskRow = (tplId, taskId) => {
+    updateTemplate(tplId, (t) => ({ ...t, tasks: t.tasks.filter((task) => task.id !== taskId) }));
+  };
+
+  const submitNewTemplate = () => {
+    if (!newTplName.trim()) return;
+    const tpl = { id: 'tpl-' + uid(), name: newTplName.trim(), tasks: [] };
+    saveTemplates([...templates, tpl]);
+    setNewTplName('');
+    setAddingTpl(false);
+    setExpanded(tpl.id);
+  };
+
+  return (
+    <div>
+      <div className="empty" style={{ padding: '0 0 16px', textAlign: 'left' }}>
+        工事種別ごとに、「着工/完了の何日前」または「他のタスクの何日後」で、誰に何をするかを登録できます。工事を登録した時に自動でタスクが並びます。
+      </div>
+
+      {templates.map((tpl) => {
+        const isOpen = expanded === tpl.id;
+        return (
+          <div className="card" key={tpl.id}>
+            <div className="card-head" onClick={() => setExpanded(isOpen ? null : tpl.id)}>
+              <div>
+                <div className="card-title">{tpl.name}</div>
+                <div className="card-sub">{tpl.tasks.length} 件のタスク</div>
+              </div>
+              {isOpen ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
+            </div>
+            {isOpen && (
+              <div style={{ marginTop: 12 }}>
+                <div className="field">
+                  <label>テンプレート名</label>
+                  <input type="text" value={tpl.name} onChange={(e) => renameTemplate(tpl.id, e.target.value)} />
+                </div>
+                {tpl.tasks.map((task) => (
+                  <div className="task-edit-block" key={task.id}>
+                    <div className="task-edit-row">
+                      <input className="target-input" type="text" placeholder="誰に" list="target-presets" value={task.target || ''} onChange={(e) => updateTaskRow(tpl.id, task.id, 'target', e.target.value)} />
+                      <input className="label-input" type="text" placeholder="何をやる" value={task.label} onChange={(e) => updateTaskRow(tpl.id, task.id, 'label', e.target.value)} />
+                      <button className="icon-btn" onClick={() => removeTaskRow(tpl.id, task.id)}><X size={15} /></button>
+                    </div>
+                    <ScheduleEditor
+                      value={task}
+                      options={tpl.tasks.filter((t) => t.id !== task.id).map((t) => ({ id: t.id, label: t.label }))}
+                      onChange={(field, value) => updateTaskRow(tpl.id, task.id, field, value)}
+                    />
+                  </div>
+                ))}
+                <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
+                  <button className="btn secondary" onClick={() => addTaskRow(tpl.id)}><Plus size={13} /> タスクを追加</button>
+                  <button className="btn danger" onClick={() => removeTemplate(tpl.id)}><Trash2 size={13} /> テンプレートを削除</button>
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })}
+
+      {addingTpl ? (
+        <div className="card">
+          <div className="field">
+            <label>工事種別名</label>
+            <input type="text" value={newTplName} onChange={(e) => setNewTplName(e.target.value)} placeholder="例：屋根塗装工事" />
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button className="btn" onClick={submitNewTemplate}>作成する</button>
+            <button className="btn secondary" onClick={() => setAddingTpl(false)}>キャンセル</button>
+          </div>
+        </div>
+      ) : (
+        <button className="btn" onClick={() => setAddingTpl(true)}><Plus size={14} /> 工事種別を追加</button>
+      )}
+    </div>
+  );
+}
+
+
+const rootEl = document.getElementById('root');
+const root = ReactDOM.createRoot(rootEl);
+root.render(<App />);
+
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('./service-worker.js').catch(() => {});
+  });
+}
+
+</script>
+</body>
+</html>

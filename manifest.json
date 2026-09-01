@@ -1,0 +1,15 @@
+{
+  "name": "現場工程ノート",
+  "short_name": "工程ノート",
+  "description": "工事ごとに、いつまでに誰に何をやるかを管理するツール",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#EFF1E8",
+  "theme_color": "#46698A",
+  "orientation": "portrait-primary",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }
+  ]
+}
