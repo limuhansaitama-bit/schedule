@@ -21,7 +21,7 @@
 </head>
 <body>
 <div id="root"></div>
-<script type="text/babel" data-presets="react">
+<script id="app-source" type="text/plain">
 const { useState, useEffect } = React;
 
 function Plus({ size }) { return <span style={{ fontSize: size || 14, lineHeight: 1 }}>＋</span>; }
@@ -1213,6 +1213,15 @@ if ('serviceWorker' in navigator) {
   });
 }
 
+</script>
+<script>
+  (function () {
+    var code = document.getElementById('app-source').textContent;
+    var output = Babel.transform(code, { presets: [["react", { runtime: "classic" }]] }).code;
+    var s = document.createElement('script');
+    s.text = output;
+    document.body.appendChild(s);
+  })();
 </script>
 </body>
 </html>
